@@ -125,6 +125,7 @@ export function OutfitCanvas({
             garments.map((garment, index) => {
               const [ymin, xmin] = garment.box_2d;
               const selected = garment.id === selectedId;
+              const labelTop = Math.min(Math.max(ymin / 10 + index * 3, 2), 94);
               return (
                 <button
                   key={`${garment.id}-label`}
@@ -133,8 +134,8 @@ export function OutfitCanvas({
                   className={`absolute z-10 max-w-[55%] truncate rounded-t-md px-2 py-1 font-mono text-[8px] font-bold uppercase tracking-[0.09em] text-white shadow-sm transition-colors sm:text-[9px] ${selected ? "bg-[var(--accent)]" : "bg-[var(--ink)]/88 hover:bg-[var(--accent)]"}`}
                   style={{
                     left: `${Math.min(Math.max(xmin / 10, 0), 82)}%`,
-                    top: `${Math.max(ymin / 10, 0)}%`,
-                    transform: ymin > 35 ? "translateY(-100%)" : "none",
+                    top: `${labelTop}%`,
+                    transform: labelTop > 35 ? "translateY(-100%)" : "none",
                   }}
                 >
                   {String(index + 1).padStart(2, "0")} · {garment.category}

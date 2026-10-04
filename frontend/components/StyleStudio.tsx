@@ -115,7 +115,7 @@ export function StyleStudio({
                 key={`${title.value}-${index}`}
                 className={`group rounded-[18px] border p-4 transition-transform duration-200 hover:-translate-y-0.5 ${
                   index === 0
-                    ? "border-[var(--ink)] bg-[var(--ink)] text-[var(--canvas)]"
+                    ? "border-[var(--ink)] bg-[var(--ink)] text-[#f3f0e8]"
                     : "border-[var(--line)] bg-[var(--canvas)]"
                 }`}
               >

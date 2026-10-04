@@ -127,7 +127,7 @@ export function MediaDropzone({
             </span>
             <p className="text-sm font-semibold">Drop a full outfit here</p>
             <p className="mt-1.5 max-w-44 text-xs leading-5 text-[var(--muted)]">Images or short video clips work best with one clear subject.</p>
-            <span className="mt-4 rounded-full bg-[var(--ink)] px-4 py-2 text-[11px] font-semibold text-[var(--canvas)]">Choose media</span>
+            <span className="mt-4 rounded-full bg-[var(--ink)] px-4 py-2 text-[11px] font-semibold text-[#f3f0e8]">Choose media</span>
           </div>
         )}
 
