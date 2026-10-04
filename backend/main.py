@@ -47,6 +47,16 @@ app.add_middleware(
 )
 
 
+@app.get("/", include_in_schema=False)
+def service_index() -> dict[str, str]:
+    return {
+        "status": "ok",
+        "service": "ai-wardrobe-backend",
+        "health": "/health",
+        "docs": "/docs",
+    }
+
+
 @lru_cache(maxsize=1)
 def get_detector_service() -> DetectorService:
     return DetectorService.from_environment()

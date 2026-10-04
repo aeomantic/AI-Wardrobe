@@ -109,3 +109,9 @@ npm run build
 
 The backend API docs are also available at `http://127.0.0.1:8000/docs` while the
 server is running.
+
+## Deployment
+
+Use separate deployments for the frontend and media API. The exact Vercel project
+settings, environment variables, backend entrypoint configuration, and platform limits
+are documented in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
