@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Plus, Sparkles } from "lucide-react";
+import { Archive, Download, Plus, Sparkles } from "lucide-react";
 import { CATEGORY_TABS } from "@/lib/mock-closet";
 import type { ClosetFilter, ClosetItem } from "@/types/closet";
 import { ClosetItemCard } from "./ClosetItemCard";
@@ -13,6 +13,7 @@ interface ClosetGridProps {
   onToggleItem: (itemId: string) => void;
   onRemoveItem: (itemId: string) => void;
   onAddItem: () => void;
+  onImportPinterest: () => void;
 }
 
 export function ClosetGrid({
@@ -23,6 +24,7 @@ export function ClosetGrid({
   onToggleItem,
   onRemoveItem,
   onAddItem,
+  onImportPinterest,
 }: ClosetGridProps) {
   const filteredItems = activeFilter === "all"
     ? items
@@ -41,13 +43,22 @@ export function ClosetGrid({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onAddItem}
-          className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--ink)] px-4 py-2 text-[11px] font-semibold text-[#f3f0e8] shadow-sm transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
-        >
-          <Plus size={14} /> Add item
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onImportPinterest}
+            className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[var(--line-strong)] bg-[var(--panel)] px-4 py-2 text-[11px] font-semibold text-[var(--ink)] transition-all hover:-translate-y-0.5 hover:border-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
+          >
+            <Download size={14} /> Import Pinterest
+          </button>
+          <button
+            type="button"
+            onClick={onAddItem}
+            className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[var(--ink)] px-4 py-2 text-[11px] font-semibold text-[#f3f0e8] shadow-sm transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
+          >
+            <Plus size={14} /> Add item
+          </button>
+        </div>
       </div>
 
       <div
@@ -113,13 +124,22 @@ export function ClosetGrid({
               <p className="mt-2 text-[11px] leading-5 text-[var(--muted)]">
                 Add a clear photo of one piece. We will isolate it, tag it, and make it available to Style Me.
               </p>
-              <button
-                type="button"
-                onClick={onAddItem}
-                className="mt-5 inline-flex items-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2.5 text-[11px] font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
-              >
-                <Plus size={14} /> Add your first item
-              </button>
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={onImportPinterest}
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--line-strong)] bg-[var(--panel)] px-4 py-2.5 text-[11px] font-semibold text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
+                >
+                  <Download size={14} /> Import board
+                </button>
+                <button
+                  type="button"
+                  onClick={onAddItem}
+                  className="inline-flex items-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2.5 text-[11px] font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
+                >
+                  <Plus size={14} /> Add your first item
+                </button>
+              </div>
             </div>
           </div>
         )}

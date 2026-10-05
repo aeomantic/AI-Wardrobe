@@ -16,6 +16,7 @@ export const CATEGORY_LABELS: Record<ClosetFilter, string> = {
   outerwear: "Outerwear",
   footwear: "Footwear",
   accessory: "Accessories",
+  inspiration: "Inspiration",
 };
 
 export const CATEGORY_TABS = Object.entries(CATEGORY_LABELS) as [ClosetFilter, string][];
@@ -45,6 +46,7 @@ const GARMENT_SHAPES: Record<ClosetCategory, string> = {
   outerwear: '<path d="M120 90 77 112 41 154l35 33 17-18v165h126V169l17 18 35-33-36-42-43-22-19 36-8-21h-14l-9 21Z"/><path d="M156 111v223" fill="none" stroke="white" stroke-opacity=".35" stroke-width="3"/>',
   footwear: '<path d="M56 199c42 22 70 25 101 11l32 33c24 4 53 14 65 33 5 8 1 22-12 25H56c-18 0-27-11-24-25l10-66c2-12 5-15 14-11Z"/><path d="M45 273h199" fill="none" stroke="white" stroke-opacity=".4" stroke-width="5"/>',
   accessory: '<rect x="62" y="137" width="176" height="148" rx="25"/><path d="M105 141c0-68 90-68 90 0" fill="none" stroke="currentColor" stroke-width="18"/>',
+  inspiration: '<rect x="48" y="82" width="204" height="246" rx="24"/><circle cx="108" cy="146" r="26" fill="white" fill-opacity=".35"/><path d="m66 287 57-70 38 39 28-31 45 62Z" fill="white" fill-opacity=".35"/>',
 };
 
 function closetArt(

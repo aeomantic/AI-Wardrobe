@@ -3,19 +3,52 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, Shirt, Sparkles } from "lucide-react";
+import { PinterestImportModal } from "@/components/PinterestImportModal";
 import { useCloset } from "@/providers/ClosetProvider";
 import type { ClosetFilter } from "@/types/closet";
+import type { PinterestImportItem } from "@/types/pinterest";
 import { AddClosetItemDialog } from "./AddClosetItemDialog";
 import { ClosetGrid } from "./ClosetGrid";
 import { StyleMePanel } from "./StyleMePanel";
 
+function getPinterestPinSourceUrl(link: string): string | undefined {
+  try {
+    const url = new URL(link);
+    return /^\/pin\/[^/]+\/?$/.test(url.pathname) ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function WardrobeDashboard() {
-  const { items, selectedItemIds, removeItem, toggleItemSelection } = useCloset();
+  const { addItems, items, selectedItemIds, removeItem, toggleItemSelection } = useCloset();
   const [activeFilter, setActiveFilter] = useState<ClosetFilter>("all");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isPinterestDialogOpen, setIsPinterestDialogOpen] = useState(false);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
 
   const scrollToStyleMe = () => {
     document.getElementById("style-me")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const savePinterestItems = (pins: PinterestImportItem[]) => {
+    const importedItems = addItems(pins.map((pin) => ({
+      name: pin.title.trim().slice(0, 80) || "Pinterest inspiration",
+      category: "inspiration" as const,
+      season: "All season" as const,
+      color: { name: "Uncategorized", hex: "#D8D3C8" },
+      imageSrc: pin.imageUrl,
+      sourceUrl: getPinterestPinSourceUrl(pin.link),
+      styleTags: ["Pinterest", "inspiration"],
+      backgroundRemoved: false,
+    })));
+
+    setActiveFilter("inspiration");
+    setImportMessage(
+      importedItems.length > 0
+        ? `${importedItems.length} Pinterest ${importedItems.length === 1 ? "pin is" : "pins are"} now in your Inspiration shelf.`
+        : "Those Pinterest pins are already in your closet.",
+    );
   };
 
   return (
@@ -60,6 +93,16 @@ export function WardrobeDashboard() {
           </div>
         </section>
 
+        {importMessage && (
+          <p
+            role="status"
+            aria-live="polite"
+            className="mb-4 rounded-[14px] border border-[var(--accent)]/20 bg-[var(--selection)]/60 px-4 py-3 text-[10px] font-medium text-[var(--accent)]"
+          >
+            {importMessage}
+          </p>
+        )}
+
         <ClosetGrid
           items={items}
           activeFilter={activeFilter}
@@ -68,6 +111,7 @@ export function WardrobeDashboard() {
           onToggleItem={toggleItemSelection}
           onRemoveItem={removeItem}
           onAddItem={() => setIsAddDialogOpen(true)}
+          onImportPinterest={() => setIsPinterestDialogOpen(true)}
         />
 
         <StyleMePanel />
@@ -81,6 +125,11 @@ export function WardrobeDashboard() {
       </div>
 
       <AddClosetItemDialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen} />
+      <PinterestImportModal
+        open={isPinterestDialogOpen}
+        onOpenChange={setIsPinterestDialogOpen}
+        onSave={savePinterestItems}
+      />
     </main>
   );
 }

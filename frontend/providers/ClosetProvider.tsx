@@ -18,6 +18,7 @@ interface ClosetStoreSnapshot {
 
 interface ClosetContextValue extends ClosetStoreSnapshot {
   addItem: (item: NewClosetItem) => ClosetItem;
+  addItems: (items: NewClosetItem[]) => ClosetItem[];
   removeItem: (itemId: string) => void;
   toggleItemSelection: (itemId: string) => void;
   clearSelection: () => void;
@@ -40,6 +41,7 @@ function isClosetItem(value: unknown): value is ClosetItem {
     typeof item.id === "string"
       && typeof item.name === "string"
       && typeof item.imageSrc === "string"
+      && (item.sourceUrl === undefined || typeof item.sourceUrl === "string")
       && typeof item.category === "string"
       && item.color
       && typeof item.color.name === "string"
@@ -92,9 +94,24 @@ function subscribe(listener: () => void): () => void {
 }
 
 function updateStore(update: (current: ClosetStoreSnapshot) => ClosetStoreSnapshot): void {
-  closetSnapshot = update(closetSnapshot);
+  const nextSnapshot = update(closetSnapshot);
+  if (nextSnapshot === closetSnapshot) return;
+  closetSnapshot = nextSnapshot;
   persistBrowserState();
   listeners.forEach((listener) => listener());
+}
+
+function normalizeDeduplicationKey(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  try {
+    const url = new URL(trimmed);
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return trimmed;
+  }
 }
 
 function createItemId(): string {
@@ -119,6 +136,48 @@ export function ClosetProvider({ children }: { children: ReactNode }) {
     return item;
   }, []);
 
+  const addItems = useCallback((inputs: NewClosetItem[]): ClosetItem[] => {
+    if (inputs.length === 0) return [];
+
+    let savedItems: ClosetItem[] = [];
+    updateStore((current) => {
+      const knownSourceUrls = new Set(
+        current.items
+          .map((item) => normalizeDeduplicationKey(item.sourceUrl))
+          .filter((value): value is string => value !== null),
+      );
+      const knownImageSources = new Set(
+        current.items
+          .map((item) => normalizeDeduplicationKey(item.imageSrc))
+          .filter((value): value is string => value !== null),
+      );
+      const createdAt = new Date().toISOString();
+
+      savedItems = inputs.flatMap((input) => {
+        const sourceUrl = normalizeDeduplicationKey(input.sourceUrl);
+        const imageSrc = normalizeDeduplicationKey(input.imageSrc);
+        const isDuplicate = (sourceUrl !== null && knownSourceUrls.has(sourceUrl))
+          || (imageSrc !== null && knownImageSources.has(imageSrc));
+
+        if (isDuplicate) return [];
+
+        if (sourceUrl !== null) knownSourceUrls.add(sourceUrl);
+        if (imageSrc !== null) knownImageSources.add(imageSrc);
+
+        return [{
+          ...input,
+          id: createItemId(),
+          createdAt,
+        }];
+      });
+
+      if (savedItems.length === 0) return current;
+      return { ...current, items: [...savedItems, ...current.items] };
+    });
+
+    return savedItems;
+  }, []);
+
   const removeItem = useCallback((itemId: string) => {
     updateStore((current) => ({
       items: current.items.filter((item) => item.id !== itemId),
@@ -140,8 +199,8 @@ export function ClosetProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<ClosetContextValue>(
-    () => ({ ...snapshot, addItem, removeItem, toggleItemSelection, clearSelection }),
-    [snapshot, addItem, removeItem, toggleItemSelection, clearSelection],
+    () => ({ ...snapshot, addItem, addItems, removeItem, toggleItemSelection, clearSelection }),
+    [snapshot, addItem, addItems, removeItem, toggleItemSelection, clearSelection],
   );
 
   return <ClosetContext.Provider value={value}>{children}</ClosetContext.Provider>;

@@ -3,7 +3,8 @@ export type ClosetCategory =
   | "bottom"
   | "outerwear"
   | "footwear"
-  | "accessory";
+  | "accessory"
+  | "inspiration";
 
 export type ClosetFilter = "all" | ClosetCategory;
 
@@ -21,6 +22,7 @@ export interface ClosetItem {
   season: ClosetSeason;
   color: ClosetColor;
   imageSrc: string;
+  sourceUrl?: string;
   styleTags: string[];
   backgroundRemoved: boolean;
   createdAt: string;
