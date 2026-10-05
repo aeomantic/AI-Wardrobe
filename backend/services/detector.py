@@ -1,4 +1,4 @@
-"""Provider-based garment detection with OpenAI and deterministic mock modes."""
+"""Provider-based garment detection with Groq and deterministic mock modes."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ class VisionProvider(Protocol):
         ...
 
 
-OPENAI_RESPONSE_SCHEMA: dict[str, Any] = {
+GROQ_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": ["overall_vibe", "detected_garments", "style_breakdown"],
@@ -120,28 +120,34 @@ the JSON object required by the response schema.
 """
 
 
-class OpenAIVisionProvider:
-    """Multimodal detector backed by OpenAI structured outputs."""
+class GroqVisionProvider:
+    """Multimodal detector backed by Groq structured outputs."""
 
     def __init__(self, *, api_key: str, model: str | None = None) -> None:
         try:
-            from openai import OpenAI
+            from groq import Groq
         except ImportError as exc:
             raise DetectorError(
-                "The openai package is required when OPENAI_API_KEY is configured."
+                "The groq package is required when GROQ_API_KEY is configured."
             ) from exc
 
-        self.model = model or os.getenv("OPENAI_VISION_MODEL", "gpt-4o-mini")
-        timeout = _positive_env_float("AI_WARDROBE_OPENAI_TIMEOUT_SECONDS", 60.0)
+        self.model = (
+            model
+            or os.getenv("GROQ_VISION_MODEL", "").strip()
+            # Groq currently marks its public vision model as Preview.
+            or "qwen/qwen3.8-27b"
+        )
+        timeout = _positive_env_float("AI_WARDROBE_GROQ_TIMEOUT_SECONDS", 60.0)
         client_options: dict[str, Any] = {
             "api_key": api_key,
             "timeout": timeout,
             "max_retries": 1,
         }
-        if os.getenv("OPENAI_BASE_URL"):
-            client_options["base_url"] = os.environ["OPENAI_BASE_URL"]
-        self.client = OpenAI(**client_options)
-        self.name = f"openai:{self.model}"
+        base_url = os.getenv("GROQ_BASE_URL", "").strip()
+        if base_url:
+            client_options["base_url"] = base_url
+        self.client = Groq(**client_options)
+        self.name = f"groq:{self.model}"
 
     def detect(self, image: Image.Image, jpeg_bytes: bytes) -> DetectionResult:
         try:
@@ -164,7 +170,6 @@ class OpenAIVisionProvider:
                                 "type": "image_url",
                                 "image_url": {
                                     "url": image_to_data_url(jpeg_bytes),
-                                    "detail": "high",
                                 },
                             },
                         ],
@@ -175,20 +180,20 @@ class OpenAIVisionProvider:
                     "json_schema": {
                         "name": "outfit_decomposition",
                         "strict": True,
-                        "schema": OPENAI_RESPONSE_SCHEMA,
+                        "schema": GROQ_RESPONSE_SCHEMA,
                     },
                 },
             )
         except Exception as exc:
-            raise DetectorError("OpenAI vision request failed.") from exc
+            raise DetectorError("Groq vision request failed.") from exc
 
         try:
             message = completion.choices[0].message
             refusal = getattr(message, "refusal", None)
             if refusal:
-                raise DetectorError(f"OpenAI declined the image analysis: {refusal}")
+                raise DetectorError(f"Groq declined the image analysis: {refusal}")
             if not message.content:
-                raise DetectorError("OpenAI returned an empty analysis.")
+                raise DetectorError("Groq returned an empty analysis.")
             payload = json.loads(message.content)
             return _parse_detection_payload(
                 payload,
@@ -198,7 +203,7 @@ class OpenAIVisionProvider:
         except DetectorError:
             raise
         except (AttributeError, IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise DetectorError("OpenAI returned an invalid outfit analysis.") from exc
+            raise DetectorError("Groq returned an invalid outfit analysis.") from exc
 
 
 class MockVisionProvider:
@@ -316,11 +321,11 @@ class DetectorService:
     @classmethod
     def from_environment(cls) -> "DetectorService":
         strict = _env_flag("AI_WARDROBE_STRICT_PROVIDER", default=False)
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        api_key = os.getenv("GROQ_API_KEY", "").strip()
         if not api_key:
             return cls(primary=None, fallback=MockVisionProvider(), strict=strict)
         return cls(
-            primary=OpenAIVisionProvider(api_key=api_key),
+            primary=GroqVisionProvider(api_key=api_key),
             fallback=MockVisionProvider(),
             strict=strict,
         )
@@ -335,7 +340,7 @@ class DetectorService:
         if self.primary is None:
             if self.strict:
                 raise DetectorError(
-                    "OPENAI_API_KEY is required while AI_WARDROBE_STRICT_PROVIDER is enabled."
+                    "GROQ_API_KEY is required while AI_WARDROBE_STRICT_PROVIDER is enabled."
                 )
             return self.fallback.detect(image, jpeg_bytes)
 

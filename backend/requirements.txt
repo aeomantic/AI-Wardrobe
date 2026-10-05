@@ -4,5 +4,5 @@ pydantic>=2.8,<3.0
 pillow>=10.4,<13.0
 python-multipart>=0.0.9,<1.0
 requests>=2.32,<3.0
-openai>=1.50,<3.0
+groq>=1.7,<2.0
 httpx>=0.27,<1.0

@@ -32,10 +32,17 @@ data URIs in the form `data:image/jpeg;base64,...`, not bare base64 payloads. Al
 `box_2d` values use `[ymin, xmin, ymax, xmax]` normalized to a 0-1000 grid against
 the processed image.
 
-Without `OPENAI_API_KEY`, the service uses the deterministic image-aware mock. With
-the key, it calls `gpt-4o-mini` by default. Set `OPENAI_VISION_MODEL` to override the
-model. Provider errors fall back to the mock unless
+Without `GROQ_API_KEY`, the service uses the deterministic image-aware mock. With
+the key, it calls `qwen/qwen3.8-27b` through Groq by default. Set
+`GROQ_VISION_MODEL` to override the model. Provider errors fall back to the mock unless
 `AI_WARDROBE_STRICT_PROVIDER=true` is configured.
+
+Create the key at <https://console.groq.com/keys>.
+Optional Groq controls are `AI_WARDROBE_GROQ_TIMEOUT_SECONDS` and `GROQ_BASE_URL`.
+Keep `GROQ_API_KEY` server-side and never expose it through a `NEXT_PUBLIC_*` variable.
+The default vision model is currently a Groq Preview model, so keep
+`GROQ_VISION_MODEL` configurable and monitor Groq model deprecations before relying on
+it for a production SLA.
 
 Useful limits can be overridden with `AI_WARDROBE_MAX_IMAGE_BYTES`,
 `AI_WARDROBE_MAX_VIDEO_BYTES`, and `AI_WARDROBE_MAX_DIMENSION`.

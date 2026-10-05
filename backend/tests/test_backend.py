@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import os
+import sys
 import unittest
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -13,7 +16,13 @@ from pydantic import ValidationError
 from backend.main import app
 from backend.schemas import GarmentBox
 from backend.services.cropper import crop_garment
-from backend.services.detector import DetectorService, MockVisionProvider
+from backend.services.detector import (
+    GROQ_RESPONSE_SCHEMA,
+    DetectorError,
+    DetectorService,
+    GroqVisionProvider,
+    MockVisionProvider,
+)
 from backend.services.media import (
     MediaProcessingError,
     UnsupportedMediaError,
@@ -51,6 +60,52 @@ def _garment(**updates: object) -> GarmentBox:
     }
     payload.update(updates)
     return GarmentBox(**payload)
+
+
+def _groq_detection_payload() -> dict[str, object]:
+    return {
+        "overall_vibe": "Relaxed Modern Utility",
+        "detected_garments": [
+            {
+                "id": "jacket-1",
+                "category": "outerwear",
+                "label": "Olive Utility Jacket",
+                "confidence": 0.96,
+                "box_2d": [80, 180, 620, 820],
+                "color": "Olive",
+                "material_estimate": "cotton twill",
+                "silhouette": "relaxed hip-length layer",
+            }
+        ],
+        "style_breakdown": {
+            "color_palette": "olive and cream",
+            "fit": "relaxed",
+            "layering": "light utility layer",
+            "mood": "practical and contemporary",
+        },
+    }
+
+
+def _fake_groq_module(
+    payload: dict[str, object],
+    captured: dict[str, object],
+) -> ModuleType:
+    class FakeCompletions:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            captured["request"] = kwargs
+            message = SimpleNamespace(content=json.dumps(payload), refusal=None)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=message)],
+            )
+
+    class FakeGroq:
+        def __init__(self, **kwargs: object) -> None:
+            captured["client_options"] = kwargs
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    module = ModuleType("groq")
+    module.Groq = FakeGroq  # type: ignore[attr-defined]
+    return module
 
 
 class BackendPipelineTests(unittest.TestCase):
@@ -106,6 +161,106 @@ class BackendPipelineTests(unittest.TestCase):
             ymin, xmin, ymax, xmax = garment.box_2d
             self.assertTrue(0 <= ymin < ymax <= 1000)
             self.assertTrue(0 <= xmin < xmax <= 1000)
+
+    def test_groq_detector_sends_strict_vision_request_and_parses_result(self) -> None:
+        captured: dict[str, object] = {}
+        fake_groq = _fake_groq_module(_groq_detection_payload(), captured)
+        media = normalize_image(_jpeg_bytes(), declared_extension=".jpg")
+
+        with (
+            patch.dict(sys.modules, {"groq": fake_groq}),
+            patch.dict(
+                os.environ,
+                {
+                    "GROQ_VISION_MODEL": "",
+                    "GROQ_BASE_URL": "",
+                    "AI_WARDROBE_GROQ_TIMEOUT_SECONDS": "",
+                },
+                clear=False,
+            ),
+        ):
+            provider = GroqVisionProvider(api_key="test-groq-key")
+            result = provider.detect(media.image, media.jpeg_bytes)
+
+        self.assertEqual(provider.name, "groq:qwen/qwen3.8-27b")
+        self.assertEqual(
+            captured["client_options"],
+            {
+                "api_key": "test-groq-key",
+                "timeout": 60.0,
+                "max_retries": 1,
+            },
+        )
+        request = captured["request"]
+        self.assertIsInstance(request, dict)
+        assert isinstance(request, dict)
+        self.assertEqual(request["model"], "qwen/qwen3.8-27b")
+        image_content = request["messages"][1]["content"][1]
+        self.assertEqual(image_content["type"], "image_url")
+        self.assertTrue(
+            image_content["image_url"]["url"].startswith(
+                "data:image/jpeg;base64,"
+            )
+        )
+        self.assertNotIn("detail", image_content["image_url"])
+        response_format = request["response_format"]
+        self.assertEqual(response_format["type"], "json_schema")
+        self.assertTrue(response_format["json_schema"]["strict"])
+        self.assertEqual(
+            response_format["json_schema"]["schema"],
+            GROQ_RESPONSE_SCHEMA,
+        )
+        self.assertEqual(result.provider, "groq:qwen/qwen3.8-27b")
+        self.assertEqual(result.overall_vibe, "Relaxed Modern Utility")
+        self.assertEqual(len(result.detected_garments), 1)
+        self.assertEqual(result.detected_garments[0].label, "Olive Utility Jacket")
+
+    def test_detector_service_selects_groq_from_environment(self) -> None:
+        captured: dict[str, object] = {}
+        fake_groq = _fake_groq_module(_groq_detection_payload(), captured)
+        with (
+            patch.dict(sys.modules, {"groq": fake_groq}),
+            patch.dict(
+                os.environ,
+                {
+                    "GROQ_API_KEY": "environment-groq-key",
+                    "GROQ_VISION_MODEL": "custom/vision-model",
+                    "GROQ_BASE_URL": "https://groq.example/v1",
+                    "AI_WARDROBE_GROQ_TIMEOUT_SECONDS": "18",
+                    "AI_WARDROBE_STRICT_PROVIDER": "false",
+                },
+                clear=True,
+            ),
+        ):
+            detector = DetectorService.from_environment()
+
+        self.assertIsInstance(detector.primary, GroqVisionProvider)
+        self.assertEqual(detector.provider_name, "groq:custom/vision-model")
+        self.assertEqual(
+            captured["client_options"],
+            {
+                "api_key": "environment-groq-key",
+                "timeout": 18.0,
+                "max_retries": 1,
+                "base_url": "https://groq.example/v1",
+            },
+        )
+
+    def test_strict_detector_requires_groq_api_key(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GROQ_API_KEY": "",
+                "AI_WARDROBE_STRICT_PROVIDER": "true",
+            },
+            clear=True,
+        ):
+            detector = DetectorService.from_environment()
+
+        self.assertEqual(detector.provider_name, "unavailable")
+        media = normalize_image(_jpeg_bytes(), declared_extension=".jpg")
+        with self.assertRaisesRegex(DetectorError, "GROQ_API_KEY is required"):
+            detector.detect(media.image, media.jpeg_bytes)
 
     def test_cropper_uses_yx_normalized_coordinate_order(self) -> None:
         image = Image.new("RGB", (200, 100), "navy")

@@ -43,8 +43,13 @@ The root `pyproject.toml` points Vercel to `backend.main:app`, and the root
 - Framework Preset: FastAPI, or leave automatic detection enabled
 - Build Command: leave blank
 - Output Directory: leave blank
-- Set `OPENAI_API_KEY` only when live vision analysis is required
+- Set `GROQ_API_KEY` only when live vision analysis is required
+- Optionally set `GROQ_VISION_MODEL=qwen/qwen3.8-27b`
 - Set `AI_WARDROBE_CORS_ORIGINS` to the frontend URL
+
+Groq currently labels `qwen/qwen3.8-27b` as Preview. Keep the model environment
+variable explicit and monitor Groq deprecations before treating the Vercel deployment
+as production-stable.
 
 This option is not equivalent to the complete local pipeline. Vercel Functions limit
 request and response payloads to 4.5 MB, and the deployment does not guarantee an

@@ -46,16 +46,23 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000/health` to confirm the service is ready. Without an
-`OPENAI_API_KEY`, the backend automatically uses its deterministic image-aware mock.
+Open `http://127.0.0.1:8000/health` to confirm the service is ready. Without a
+`GROQ_API_KEY`, the backend automatically uses its deterministic image-aware mock.
 
-To enable the live OpenAI vision provider for the current PowerShell session:
+To enable the live Groq vision provider for the current PowerShell session:
+
+Create a server-side key in the [GroqCloud console](https://console.groq.com/keys),
+then set it only in the backend environment:
 
 ```powershell
-$env:OPENAI_API_KEY="your-key"
-$env:OPENAI_VISION_MODEL="gpt-4o-mini"
+$env:GROQ_API_KEY="your-groq-key"
+$env:GROQ_VISION_MODEL="qwen/qwen3.8-27b"
 .\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+`qwen/qwen3.8-27b` is Groq's current public vision model and is marked Preview.
+Keep `GROQ_VISION_MODEL` configured so it can be replaced without a code change if
+Groq deprecates it.
 
 Do not commit real keys. Set `AI_WARDROBE_STRICT_PROVIDER=true` only when provider
 failures should return `503` instead of falling back to the mock.
