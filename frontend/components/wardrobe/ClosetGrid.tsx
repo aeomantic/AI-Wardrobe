@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Download, Plus, Sparkles } from "lucide-react";
+import { Archive, Download, Plus, Search, Sparkles } from "lucide-react";
 import { CATEGORY_TABS } from "@/lib/mock-closet";
 import type { ClosetFilter, ClosetItem } from "@/types/closet";
 import { ClosetItemCard } from "./ClosetItemCard";
@@ -14,6 +14,7 @@ interface ClosetGridProps {
   onRemoveItem: (itemId: string) => void;
   onAddItem: () => void;
   onImportPinterest: () => void;
+  onSearchCatalog: () => void;
 }
 
 export function ClosetGrid({
@@ -25,6 +26,7 @@ export function ClosetGrid({
   onRemoveItem,
   onAddItem,
   onImportPinterest,
+  onSearchCatalog,
 }: ClosetGridProps) {
   const filteredItems = activeFilter === "all"
     ? items
@@ -44,6 +46,13 @@ export function ClosetGrid({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onSearchCatalog}
+            className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[var(--line-strong)] bg-[var(--panel)] px-4 py-2 text-[11px] font-semibold text-[var(--ink)] transition-all hover:-translate-y-0.5 hover:border-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
+          >
+            <Search size={14} /> Search catalog
+          </button>
           <button
             type="button"
             onClick={onImportPinterest}
@@ -125,6 +134,13 @@ export function ClosetGrid({
                 Add a clear photo of one piece. We will isolate it, tag it, and make it available to Style Me.
               </p>
               <div className="mt-5 flex flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={onSearchCatalog}
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--line-strong)] bg-[var(--panel)] px-4 py-2.5 text-[11px] font-semibold text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
+                >
+                  <Search size={14} /> Search catalog
+                </button>
                 <button
                   type="button"
                   onClick={onImportPinterest}

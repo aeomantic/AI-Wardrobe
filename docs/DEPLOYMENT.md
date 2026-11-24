@@ -28,6 +28,36 @@ Set this production environment variable before redeploying:
 NEXT_PUBLIC_API_URL=https://your-api-domain.example
 ```
 
+Optionally, set a read-only Hugging Face access token as a server-only variable
+(no `NEXT_PUBLIC_` prefix). The men's catalog search proxies the public
+`ashraq/fashion-product-images-small` dataset through `/api/catalog` and works
+without a token. The token only raises Hugging Face rate limits:
+
+```text
+HF_TOKEN=hf_your_read_only_token
+```
+
+Garment tagging (`POST /api/wardrobe/tag`) and outfit picking
+(`POST /api/outfits/recommend`) run inside the Next.js app and work with no key at
+all, using a deterministic local tagger and outfit matcher. To use a live model, set
+one provider's key as a server-only variable. The first configured provider wins,
+in this order:
+
+```text
+GROQ_API_KEY=...          # optional: GROQ_VISION_MODEL, GROQ_BASE_URL
+OPENAI_API_KEY=...        # optional: OPENAI_VISION_MODEL, OPENAI_BASE_URL
+GEMINI_API_KEY=...        # optional: GEMINI_MODEL
+```
+
+The tagging model must accept image input. Garment photos are compressed in the
+browser to under ~150 KB and stored in the user's IndexedDB. They are sent once to
+the tagging route and never to the outfit route, which receives only item metadata.
+
+Catalog images are signed Hugging Face URLs that expire after about an hour. They
+are rendered with plain `<img>` tags and never pass through `/_next/image`, so they
+do not use the Vercel image optimization quota. Do not add the Hugging Face hosts
+to `images.remotePatterns`.
+
 On the backend host, allow the deployed frontend origin:
 
 ```text

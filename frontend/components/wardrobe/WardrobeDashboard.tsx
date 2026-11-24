@@ -3,11 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, Shirt, Sparkles } from "lucide-react";
+import { CatalogSearchModal } from "@/components/CatalogSearchModal";
 import { PinterestImportModal } from "@/components/PinterestImportModal";
 import { useCloset } from "@/providers/ClosetProvider";
 import type { ClosetFilter } from "@/types/closet";
 import type { PinterestImportItem } from "@/types/pinterest";
 import { AddClosetItemDialog } from "./AddClosetItemDialog";
+import { ClosetBackupPanel } from "./ClosetBackupPanel";
 import { ClosetGrid } from "./ClosetGrid";
 import { StyleMePanel } from "./StyleMePanel";
 
@@ -25,6 +27,7 @@ export function WardrobeDashboard() {
   const [activeFilter, setActiveFilter] = useState<ClosetFilter>("all");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isPinterestDialogOpen, setIsPinterestDialogOpen] = useState(false);
+  const [isCatalogDialogOpen, setIsCatalogDialogOpen] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
 
   const scrollToStyleMe = () => {
@@ -38,6 +41,7 @@ export function WardrobeDashboard() {
       season: "All season" as const,
       color: { name: "Uncategorized", hex: "#D8D3C8" },
       imageSrc: pin.imageUrl,
+      imageSource: "external" as const,
       sourceUrl: getPinterestPinSourceUrl(pin.link),
       styleTags: ["Pinterest", "inspiration"],
       backgroundRemoved: false,
@@ -112,12 +116,15 @@ export function WardrobeDashboard() {
           onRemoveItem={removeItem}
           onAddItem={() => setIsAddDialogOpen(true)}
           onImportPinterest={() => setIsPinterestDialogOpen(true)}
+          onSearchCatalog={() => setIsCatalogDialogOpen(true)}
         />
+
+        <ClosetBackupPanel onMessage={setImportMessage} />
 
         <StyleMePanel />
 
         <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--line)] pt-4 font-mono text-[8px] font-bold uppercase tracking-[0.14em] text-[var(--muted)]">
-          <p>Threadline Closet · Session-saved mock data</p>
+          <p>Threadline Closet · Saved on this device</p>
           <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="flex items-center gap-1.5 hover:text-[var(--ink)]">
             Back to top <ArrowUpRight size={11} />
           </button>
@@ -130,6 +137,7 @@ export function WardrobeDashboard() {
         onOpenChange={setIsPinterestDialogOpen}
         onSave={savePinterestItems}
       />
+      <CatalogSearchModal open={isCatalogDialogOpen} onOpenChange={setIsCatalogDialogOpen} />
     </main>
   );
 }

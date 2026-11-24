@@ -3,10 +3,6 @@ import type {
   ClosetColor,
   ClosetFilter,
   ClosetItem,
-  ClosetSeason,
-  GeneratedClosetOutfit,
-  StyleOccasion,
-  WeatherProfile,
 } from "@/types/closet";
 
 export const CATEGORY_LABELS: Record<ClosetFilter, string> = {
@@ -21,15 +17,7 @@ export const CATEGORY_LABELS: Record<ClosetFilter, string> = {
 
 export const CATEGORY_TABS = Object.entries(CATEGORY_LABELS) as [ClosetFilter, string][];
 
-export const SEASON_OPTIONS: ClosetSeason[] = [
-  "All season",
-  "Spring",
-  "Summer",
-  "Autumn",
-  "Winter",
-];
-
-export const COLOR_OPTIONS: ClosetColor[] = [
+const COLOR_OPTIONS: ClosetColor[] = [
   { name: "Cream", hex: "#E8E0D0" },
   { name: "Black", hex: "#252525" },
   { name: "Navy", hex: "#273349" },
@@ -170,117 +158,3 @@ export const SEED_CLOSET_ITEMS: ClosetItem[] = [
     createdAt: "2026-08-18T09:00:00.000Z",
   },
 ];
-
-export function inferMockTags(fileName: string): {
-  name: string;
-  category: ClosetCategory;
-  season: ClosetSeason;
-  color: ClosetColor;
-  styleTags: string[];
-} {
-  const normalized = fileName.toLowerCase();
-  const category: ClosetCategory = normalized.match(/shoe|sneaker|boot|loafer/)
-    ? "footwear"
-    : normalized.match(/pant|jean|skirt|short/)
-      ? "bottom"
-      : normalized.match(/jacket|coat|blazer/)
-        ? "outerwear"
-        : normalized.match(/bag|hat|belt|scarf/)
-          ? "accessory"
-          : "top";
-  const color = normalized.match(/black|dark/)
-    ? COLOR_OPTIONS[1]
-    : normalized.match(/blue|navy/)
-      ? COLOR_OPTIONS[2]
-      : normalized.match(/red|rust|clay/)
-        ? COLOR_OPTIONS[6]
-        : COLOR_OPTIONS[0];
-  const cleanedName = fileName
-    .replace(/\.[^.]+$/, "")
-    .replace(/[-_]+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
-    .trim();
-
-  return {
-    name: cleanedName || "New Closet Piece",
-    category,
-    season: category === "outerwear" ? "Autumn" : "All season",
-    color,
-    styleTags: category === "footwear" ? ["versatile", "clean"] : ["everyday", "easy layer"],
-  };
-}
-
-const OUTFIT_COPY: Record<StyleOccasion, { titles: string[]; descriptions: string[] }> = {
-  Casual: {
-    titles: ["Easy Layers", "Clean Weekend", "Relaxed Contrast"],
-    descriptions: [
-      "Low-effort proportions with one intentional finishing piece.",
-      "A crisp everyday mix that still feels considered.",
-      "Soft structure balanced by a grounded shoe and simple color story.",
-    ],
-  },
-  Work: {
-    titles: ["Quiet Authority", "Soft Tailoring", "Desk to Dinner"],
-    descriptions: [
-      "Polished lines without making the outfit feel overly formal.",
-      "A composed palette with enough ease for a full day.",
-      "Professional foundations with a sharper finishing detail.",
-    ],
-  },
-  "Night Out": {
-    titles: ["After Dark", "Tonal Statement", "Late Reservation"],
-    descriptions: [
-      "A compact silhouette with contrast focused around the accessories.",
-      "Confident color balance built from pieces you already own.",
-      "A sharper remix that moves easily from dinner to drinks.",
-    ],
-  },
-};
-
-const WEATHER_NOTES: Record<WeatherProfile, string> = {
-  Warm: "Keep the base breathable and let the accessories carry the visual weight.",
-  Mild: "Use one optional layer so the proportions stay flexible through the day.",
-  Cool: "Build warmth through a close base and structured outer layer.",
-};
-
-export function buildMockOutfits(
-  items: ClosetItem[],
-  occasion: StyleOccasion,
-  weather: WeatherProfile,
-  pinnedItemIds: string[] = [],
-): GeneratedClosetOutfit[] {
-  if (items.length === 0) return [];
-
-  const pinned = new Set(pinnedItemIds);
-  const categoryOrder: ClosetCategory[] = ["top", "bottom", "outerwear", "footwear", "accessory"];
-  const eligibleCategories = weather === "Warm"
-    ? categoryOrder.filter((category) => category !== "outerwear")
-    : categoryOrder;
-  const occasionOffset = occasion === "Casual" ? 0 : occasion === "Work" ? 1 : 2;
-  const copy = OUTFIT_COPY[occasion];
-
-  return Array.from({ length: 3 }, (_, outfitIndex) => {
-    const chosen = eligibleCategories.flatMap((category, categoryIndex) => {
-      const options = items.filter((item) => item.category === category);
-      if (options.length === 0) return [];
-      const pinnedOptions = options.filter((item) => pinned.has(item.id));
-      const rotation = pinnedOptions.length > 0 ? pinnedOptions : options;
-      const rotationIndex = pinnedOptions.length > 0
-        ? outfitIndex
-        : outfitIndex + categoryIndex + occasionOffset;
-      return [rotation[rotationIndex % rotation.length].id];
-    });
-
-    if (chosen.length === 0) chosen.push(items[outfitIndex % items.length].id);
-
-    return {
-      id: `mock-${occasion.toLowerCase().replaceAll(" ", "-")}-${weather.toLowerCase()}-${outfitIndex + 1}`,
-      title: copy.titles[outfitIndex],
-      description: copy.descriptions[outfitIndex],
-      stylingNote: WEATHER_NOTES[weather],
-      occasion,
-      weather,
-      itemIds: [...new Set(chosen)],
-    };
-  });
-}

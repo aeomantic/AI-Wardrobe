@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Pin, Trash2 } from "lucide-react";
+import { WardrobeImage } from "@/components/WardrobeImage";
 import { CATEGORY_LABELS } from "@/lib/mock-closet";
 import type { ClosetItem } from "@/types/closet";
 
@@ -21,11 +22,8 @@ export function ClosetItemCard({ item, selected, onToggle, onRemove }: ClosetIte
       }`}
     >
       <div className="relative aspect-[4/5] overflow-hidden bg-[#ebe7dc]">
-        {/* Uploaded data URLs and generated mock SVGs are intentionally rendered without optimization. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={item.imageSrc}
-          alt={item.name}
+        <WardrobeImage
+          item={item}
           className="size-full object-contain transition-transform duration-300 group-hover:scale-[1.025]"
         />
 
