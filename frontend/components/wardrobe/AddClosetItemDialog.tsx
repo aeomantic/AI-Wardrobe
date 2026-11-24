@@ -11,13 +11,16 @@ import {
 } from "react";
 import {
   Check,
+  ChevronDown,
   CircleAlert,
   Cpu,
   HardDrive,
   ImagePlus,
+  Info,
   LoaderCircle,
   Minimize2,
   Plus,
+  RefreshCw,
   Sparkles,
   Trash2,
   Upload,
@@ -48,17 +51,22 @@ import {
   paletteColorByName,
   sanitizeGarmentTags,
   sanitizeStyleTags,
+  sanitizeVisualAnalysis,
 } from "@/lib/wardrobe/garment-tags";
 import { inferGarmentTagsLocally } from "@/lib/wardrobe/local-tagger";
 import { createClosetItemId, useCloset } from "@/providers/ClosetProvider";
 import type {
-  AiResultSource,
+  AiProviderName,
   ClosetFit,
   ClosetFormality,
   ClosetSeason,
   GarmentCategory,
+  GarmentPhotoType,
   GarmentTags,
+  GarmentVisualAnalysis,
   NewClosetItem,
+  TagFallbackReason,
+  TagSource,
 } from "@/types/closet";
 
 interface AddClosetItemDialogProps {
@@ -68,7 +76,24 @@ interface AddClosetItemDialogProps {
 
 type DraftStage = "compressing" | "saving" | "tagging" | "review" | "error";
 
-interface UploadDraft {
+interface TagHints {
+  fileName: string;
+  dominantHex: string | null;
+  width: number;
+  height: number;
+}
+
+interface TagResult {
+  tags: GarmentTags;
+  tagSource: TagSource;
+  fallbackReason: TagFallbackReason | null;
+  provider: AiProviderName | null;
+  model: string | null;
+  /** Shown as "Why AI picked this". Deliberately not saved on the closet item. */
+  visualAnalysis: GarmentVisualAnalysis | null;
+}
+
+interface UploadDraft extends Partial<Omit<TagResult, "tags">> {
   id: string;
   fileName: string;
   stage: DraftStage;
@@ -76,7 +101,8 @@ interface UploadDraft {
   sizeBytes: number | null;
   tags: GarmentTags | null;
   tagsText: string;
-  tagSource: AiResultSource | null;
+  reanalyzing: boolean;
+  notice: string | null;
   error: string | null;
 }
 
@@ -94,21 +120,62 @@ const PIPELINE_STEPS: { stage: DraftStage | "save"; label: string; icon: typeof 
 
 const STAGE_ORDER: Record<DraftStage, number> = { compressing: 0, saving: 1, tagging: 2, review: 3, error: 3 };
 
-const SOURCE_LABELS: Record<AiResultSource, string> = {
-  groq: "AI tagged · Groq",
-  openai: "AI tagged · OpenAI",
-  gemini: "AI tagged · Gemini",
-  fallback: "Smart local tags",
+const PROVIDER_NAMES: Record<AiProviderName, string> = { groq: "Groq", openai: "OpenAI", gemini: "Gemini" };
+
+const FALLBACK_LABELS: Record<TagFallbackReason, string> = {
+  missing_api_key: "Local fallback · No vision key",
+  api_error: "Local fallback · Vision API error",
+  parse_error: "Local fallback · Unreadable AI reply",
+};
+
+const FALLBACK_HELP: Record<TagFallbackReason, string> = {
+  missing_api_key: "No vision AI key is set on the server, so these tags are a best guess from the file name and photo colors. Add OPENAI_API_KEY or GEMINI_API_KEY, then re-analyze.",
+  api_error: "The vision AI could not be reached, so these tags are a best guess from the file name and photo colors.",
+  parse_error: "The vision AI sent back an answer that could not be used, so these tags are a best guess.",
+};
+
+const PHOTO_TYPE_LABELS: Record<GarmentPhotoType, string> = {
+  hanger: "On a hanger",
+  "flat-lay": "Flat lay",
+  worn: "Worn",
+  other: "Product shot",
 };
 
 function formatKilobytes(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-function isGarmentTagResponse(value: unknown): value is { tags: unknown; source: AiResultSource } {
-  if (!value || typeof value !== "object") return false;
-  const source = (value as { source?: unknown }).source;
-  return typeof source === "string" && source in SOURCE_LABELS && "tags" in value;
+function isOneOf<T extends string>(value: unknown, options: Record<T, unknown>): value is T {
+  return typeof value === "string" && Object.hasOwn(options, value);
+}
+
+/** Validates the tagging API's reply. Anything malformed is treated as an API failure. */
+function parseTagResponse(payload: unknown): TagResult | null {
+  if (!payload || typeof payload !== "object") return null;
+  const record = payload as Record<string, unknown>;
+  const tags = sanitizeGarmentTags(record.tags);
+  if (!tags || (record.tagSource !== "ai-vision" && record.tagSource !== "local-fallback")) return null;
+  const isVision = record.tagSource === "ai-vision";
+  return {
+    tags,
+    tagSource: record.tagSource,
+    fallbackReason: isVision ? null : isOneOf(record.fallbackReason, FALLBACK_LABELS) ? record.fallbackReason : "api_error",
+    provider: isOneOf(record.provider, PROVIDER_NAMES) ? record.provider : null,
+    model: typeof record.model === "string" ? record.model.slice(0, 80) : null,
+    visualAnalysis: isVision ? sanitizeVisualAnalysis(record.visualAnalysis) : null,
+  };
+}
+
+function tagResultPatch(result: TagResult): Partial<UploadDraft> {
+  return {
+    tags: result.tags,
+    tagsText: result.tags.styleTags.join(", "),
+    tagSource: result.tagSource,
+    fallbackReason: result.fallbackReason,
+    provider: result.provider,
+    model: result.model,
+    visualAnalysis: result.visualAnalysis,
+  };
 }
 
 function describeError(error: unknown): string {
@@ -119,13 +186,11 @@ function describeError(error: unknown): string {
   return "This photo could not be processed. Try another one.";
 }
 
-/** One-time tagging. Falls back to the local tagger if the API is unreachable. */
-async function tagPhoto(
-  blob: Blob,
-  hints: { fileName: string; dominantHex: string | null; width: number; height: number },
-  signal: AbortSignal,
-): Promise<{ tags: GarmentTags; source: AiResultSource }> {
-  const localTags = () => inferGarmentTagsLocally({ ...hints, dominantHex: hints.dominantHex ?? undefined });
+/**
+ * Tags one photo. If the tagging API itself cannot be reached or rejects the
+ * request, the local tagger runs here and the result says so.
+ */
+async function tagPhoto(blob: Blob, hints: TagHints, signal: AbortSignal): Promise<TagResult> {
   try {
     const response = await fetch("/api/wardrobe/tag", {
       method: "POST",
@@ -140,12 +205,19 @@ async function tagPhoto(
       signal,
     });
     const payload: unknown = await response.json().catch(() => null);
-    const tags = response.ok && isGarmentTagResponse(payload) ? sanitizeGarmentTags(payload.tags) : null;
-    if (tags && isGarmentTagResponse(payload)) return { tags, source: payload.source };
+    const result = response.ok ? parseTagResponse(payload) : null;
+    if (result) return result;
   } catch (error) {
     if (signal.aborted) throw error;
   }
-  return { tags: localTags(), source: "fallback" };
+  return {
+    tags: inferGarmentTagsLocally({ ...hints, dominantHex: hints.dominantHex ?? undefined }),
+    tagSource: "local-fallback",
+    fallbackReason: "api_error",
+    provider: null,
+    model: null,
+    visualAnalysis: null,
+  };
 }
 
 function StageChip({ draft }: { draft: UploadDraft }) {
@@ -156,12 +228,21 @@ function StageChip({ draft }: { draft: UploadDraft }) {
       </span>
     );
   }
+  if (draft.stage === "review" && draft.tagSource === "ai-vision") {
+    const engine = [draft.provider ? PROVIDER_NAMES[draft.provider] : null, draft.model].filter(Boolean).join(" · ");
+    return (
+      <span
+        title={engine ? `Tagged by ${engine}` : undefined}
+        className="inline-flex items-center gap-1 rounded-full bg-[var(--selection)] px-2 py-1 font-mono text-[7px] font-bold uppercase tracking-[0.1em] text-[var(--accent)]"
+      >
+        <Sparkles size={10} /> AI Vision Tagged
+      </span>
+    );
+  }
   if (draft.stage === "review") {
     return (
-      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 font-mono text-[7px] font-bold uppercase tracking-[0.1em] ${
-        draft.tagSource && draft.tagSource !== "fallback" ? "bg-[var(--selection)] text-[var(--accent)]" : "bg-[#efece4] text-[var(--muted)]"
-      }`}>
-        <Sparkles size={10} /> {draft.tagSource ? SOURCE_LABELS[draft.tagSource] : "Tagged"}
+      <span className="inline-flex items-center gap-1 rounded-full bg-[#f8ecd6] px-2 py-1 font-mono text-[7px] font-bold uppercase tracking-[0.1em] text-[#7a5418]">
+        <CircleAlert size={10} /> {FALLBACK_LABELS[draft.fallbackReason ?? "api_error"]}
       </span>
     );
   }
@@ -274,6 +355,33 @@ function DraftEditor({
   );
 }
 
+function VisualAnalysisDetails({ analysis }: { analysis: GarmentVisualAnalysis }) {
+  const rows: [string, string][] = [
+    ["Photo", PHOTO_TYPE_LABELS[analysis.photoType]],
+    ["Shoulders", analysis.shoulderConstruction],
+    ["Sleeves / legs", analysis.sleeveProportion],
+    ["Silhouette", analysis.bodySilhouette],
+    ["True color", analysis.trueGarmentColor],
+  ];
+
+  return (
+    <details className="group mt-2.5 rounded-lg border border-[var(--line)] bg-[var(--canvas)] px-2.5 py-1.5">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded text-[9px] font-semibold text-[var(--muted)] transition-colors hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] [&::-webkit-details-marker]:hidden">
+        <Info size={11} /> Why AI picked this
+        <ChevronDown size={11} className="ml-auto transition-transform group-open:rotate-180" />
+      </summary>
+      <dl className="mt-1.5 space-y-1 pb-0.5 text-[9px] leading-4">
+        {rows.filter(([, value]) => value).map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[68px_minmax(0,1fr)] gap-2">
+            <dt className="text-[var(--muted)]">{label}</dt>
+            <dd className="text-[var(--ink)]">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
 function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
   const { addItems } = useCloset();
   const inputId = useId();
@@ -283,6 +391,8 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
   const abortRef = useRef<AbortController>(new AbortController());
   // Photo ids written to IndexedDB by this dialog that are not in the closet yet.
   const uncommittedIdsRef = useRef(new Set<string>());
+  // Compressed photos kept in memory so "Re-analyze with AI" can resend them.
+  const tagSourcesRef = useRef(new Map<string, { blob: Blob; hints: TagHints }>());
   const hasRequestedPersistenceRef = useRef(false);
   const [drafts, setDrafts] = useState<UploadDraft[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -304,6 +414,7 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
     const controller = new AbortController();
     abortRef.current = controller;
     const uncommittedIds = uncommittedIdsRef.current;
+    const tagSources = tagSourcesRef.current;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     closeButtonRef.current?.focus();
@@ -311,6 +422,7 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
     return () => {
       document.body.style.overflow = previousOverflow;
       controller.abort();
+      tagSources.clear();
       // Photos the user never saved must not linger in IndexedDB.
       const orphanIds = [...uncommittedIds];
       uncommittedIds.clear();
@@ -345,19 +457,44 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
         void requestPersistentStorage();
       }
 
-      const { tags, source } = await tagPhoto(compressed.blob, {
+      const hints: TagHints = {
         fileName: file.name,
         dominantHex: compressed.dominantHex,
         width: compressed.width,
         height: compressed.height,
-      }, signal);
+      };
+      tagSourcesRef.current.set(id, { blob: compressed.blob, hints });
+      const result = await tagPhoto(compressed.blob, hints, signal);
       if (signal.aborted) return;
-      updateDraft(id, { stage: "review", tags, tagsText: tags.styleTags.join(", "), tagSource: source });
+      updateDraft(id, { stage: "review", ...tagResultPatch(result) });
     } catch (error) {
       if (signal.aborted) return;
       updateDraft(id, { stage: "error", error: describeError(error) });
     }
   }, [updateDraft]);
+
+  const reanalyzeDraft = async (id: string) => {
+    const source = tagSourcesRef.current.get(id);
+    const signal = abortRef.current.signal;
+    if (!source) return;
+    updateDraft(id, { reanalyzing: true, notice: null });
+    try {
+      const result = await tagPhoto(source.blob, source.hints, signal);
+      if (signal.aborted) return;
+      if (result.tagSource === "ai-vision") {
+        updateDraft(id, { ...tagResultPatch(result), reanalyzing: false });
+      } else {
+        // Vision is still unavailable: keep the user's edits, refresh only the reason.
+        updateDraft(id, {
+          reanalyzing: false,
+          fallbackReason: result.fallbackReason,
+          notice: "Vision AI is still unavailable. Your edits were kept.",
+        });
+      }
+    } catch {
+      if (!signal.aborted) updateDraft(id, { reanalyzing: false });
+    }
+  };
 
   const addFiles = (fileList: FileList | File[]) => {
     const files = Array.from(fileList).filter((file) => !file.type || file.type.startsWith("image/"));
@@ -382,7 +519,8 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
         sizeBytes: null,
         tags: null,
         tagsText: "",
-        tagSource: null,
+        reanalyzing: false,
+        notice: null,
         error: null,
       })),
     ]);
@@ -397,6 +535,7 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
 
   const discardDraft = (id: string) => {
     setDrafts((current) => current.filter((draft) => draft.id !== id));
+    tagSourcesRef.current.delete(id);
     if (uncommittedIdsRef.current.delete(id)) {
       untrackPendingGarmentUploads([id]);
       void deleteGarmentBlobs([id]).catch(() => undefined);
@@ -406,6 +545,8 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
   const readyDrafts = drafts.filter((draft): draft is UploadDraft & { tags: GarmentTags } => draft.stage === "review" && draft.tags !== null);
   const processingCount = drafts.filter((draft) => STAGE_ORDER[draft.stage] < STAGE_ORDER.review).length;
   const isProcessing = processingCount > 0;
+  const reanalyzingCount = drafts.filter((draft) => draft.reanalyzing).length;
+  const isBusy = isProcessing || reanalyzingCount > 0;
   const currentStep = drafts.length === 0
     ? -1
     : isProcessing
@@ -413,7 +554,7 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
       : 3;
 
   const saveDrafts = () => {
-    if (readyDrafts.length === 0 || isProcessing) return;
+    if (readyDrafts.length === 0 || isBusy) return;
     const items = readyDrafts.map(({ id, tags, tagsText }): NewClosetItem => ({
       id,
       name: tags.name.trim() || `${tags.color.name} ${CATEGORY_LABELS[tags.category]}`,
@@ -456,7 +597,7 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        aria-busy={isProcessing}
+        aria-busy={isBusy}
         className="my-auto flex max-h-[min(92vh,900px)] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-white/20 bg-[var(--panel)] shadow-[0_32px_100px_rgba(0,0,0,0.34)]"
       >
         <header className="shrink-0 border-b border-[var(--line)] px-5 py-4 sm:px-6">
@@ -570,12 +711,35 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
                     {draft.stage === "error" ? (
                       <p role="alert" className="text-[10px] leading-5 text-[#87362f]">{draft.error}</p>
                     ) : draft.stage === "review" && draft.tags ? (
-                      <DraftEditor
-                        tags={draft.tags}
-                        tagsText={draft.tagsText}
-                        onChange={(patch) => updateDraftTags(draft.id, patch)}
-                        onTagsTextChange={(tagsText) => updateDraft(draft.id, { tagsText })}
-                      />
+                      <>
+                        {draft.tagSource === "local-fallback" && (
+                          <div className="mb-2.5 rounded-lg border border-[#ecd9b8] bg-[#fbf4e6] px-2.5 py-2">
+                            <p className="text-[9px] leading-4 text-[#6f4c16]">{FALLBACK_HELP[draft.fallbackReason ?? "api_error"]}</p>
+                            {draft.notice && <p role="status" className="mt-1 text-[9px] font-semibold leading-4 text-[#6f4c16]">{draft.notice}</p>}
+                            <button
+                              type="button"
+                              onClick={() => void reanalyzeDraft(draft.id)}
+                              disabled={draft.reanalyzing}
+                              className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3 py-1.5 text-[9px] font-semibold text-[#f3f0e8] transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-1 disabled:translate-y-0 disabled:opacity-55"
+                            >
+                              {draft.reanalyzing ? <LoaderCircle size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                              {draft.reanalyzing ? "Re-analyzing…" : "Re-analyze with AI"}
+                            </button>
+                          </div>
+                        )}
+                        <fieldset disabled={draft.reanalyzing} className="m-0 min-w-0 border-0 p-0 disabled:opacity-60">
+                          <legend className="sr-only">Tags for {draft.tags.name || draft.fileName}</legend>
+                          <DraftEditor
+                            tags={draft.tags}
+                            tagsText={draft.tagsText}
+                            onChange={(patch) => updateDraftTags(draft.id, patch)}
+                            onTagsTextChange={(tagsText) => updateDraft(draft.id, { tagsText })}
+                          />
+                        </fieldset>
+                        {draft.tagSource === "ai-vision" && draft.visualAnalysis && (
+                          <VisualAnalysisDetails analysis={draft.visualAnalysis} />
+                        )}
+                      </>
                     ) : (
                       <div className="space-y-2" aria-hidden="true">
                         <div className="h-8 animate-pulse rounded-lg bg-[var(--canvas)]" />
@@ -617,11 +781,13 @@ function UploadDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
             <button
               type="button"
               onClick={saveDrafts}
-              disabled={readyDrafts.length === 0 || isProcessing}
+              disabled={readyDrafts.length === 0 || isBusy}
               className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-5 py-3 text-[11px] font-semibold text-white shadow-[0_10px_24px_rgba(38,69,255,0.2)] transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 disabled:translate-y-0 disabled:opacity-45"
             >
               {isProcessing ? (
                 <><LoaderCircle size={14} className="animate-spin" /> Preparing {processingCount} more</>
+              ) : reanalyzingCount > 0 ? (
+                <><LoaderCircle size={14} className="animate-spin" /> Re-analyzing {reanalyzingCount}</>
               ) : (
                 <><Check size={14} /> Save {readyDrafts.length} to closet</>
               )}

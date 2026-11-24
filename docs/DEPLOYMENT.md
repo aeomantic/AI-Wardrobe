@@ -45,13 +45,20 @@ in this order:
 
 ```text
 GROQ_API_KEY=...          # optional: GROQ_VISION_MODEL, GROQ_BASE_URL
-OPENAI_API_KEY=...        # optional: OPENAI_VISION_MODEL, OPENAI_BASE_URL
-GEMINI_API_KEY=...        # optional: GEMINI_MODEL
+OPENAI_API_KEY=...        # optional: OPENAI_VISION_MODEL (default gpt-6-luna), OPENAI_BASE_URL
+GEMINI_API_KEY=...        # or GOOGLE_GENERATIVE_AI_API_KEY; optional: GEMINI_MODEL (default gemini-3.8-flash)
 ```
 
 The tagging model must accept image input. Garment photos are compressed in the
 browser to under ~150 KB and stored in the user's IndexedDB. They are sent once to
 the tagging route and never to the outfit route, which receives only item metadata.
+
+The upload review card shows which engine tagged each photo. "AI Vision Tagged"
+means a live model analyzed it. "Local fallback" means it did not, with the reason:
+no vision key, a vision API error, or an unreadable AI reply. Each fallback is also
+logged on the server as `[wardrobe/tag] local-fallback (<reason>)`, with the provider's
+error message and any key-like text redacted. After adding a key, restart `npm run dev`
+locally, or redeploy on Vercel, before re-analyzing.
 
 Catalog images are signed Hugging Face URLs that expire after about an hour. They
 are rendered with plain `<img>` tags and never pass through `/_next/image`, so they

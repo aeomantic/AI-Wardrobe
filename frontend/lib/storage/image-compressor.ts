@@ -20,7 +20,7 @@ export interface CompressedGarmentImage {
   height: number;
   mimeType: string;
   sizeBytes: number;
-  /** Average color of the garment, ignoring near-white studio backgrounds. */
+  /** Most common color in the center of the photo, where the garment usually is. */
   dominantHex: string | null;
 }
 
@@ -129,18 +129,36 @@ function toHex(red: number, green: number, blue: number): string {
   return `#${[red, green, blue].map((value) => Math.round(value).toString(16).padStart(2, "0")).join("")}`.toUpperCase();
 }
 
+// Share of each axis sampled for color, centered. Hanger, flat-lay, and worn
+// shots put the garment in the middle; doors, walls, and floors live at the edges.
+const COLOR_SAMPLE_CROP = 0.4;
+const COLOR_SAMPLE_SIZE = 32;
+
 /**
- * Averages a 24px thumbnail, skipping transparent and near-white pixels so a
- * studio background does not wash out the garment color.
+ * Estimates the garment color from the center 40% of the photo. It returns the
+ * most common color there, not the mean, so a shadow, print, or sliver of
+ * background cannot average the garment into a muddy grey.
  */
 function estimateDominantHex(image: DecodedImage): string | null {
-  const size = 24;
+  const size = COLOR_SAMPLE_SIZE;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) return null;
-  context.drawImage(image.source, 0, 0, size, size);
+  const cropWidth = image.width * COLOR_SAMPLE_CROP;
+  const cropHeight = image.height * COLOR_SAMPLE_CROP;
+  context.drawImage(
+    image.source,
+    (image.width - cropWidth) / 2,
+    (image.height - cropHeight) / 2,
+    cropWidth,
+    cropHeight,
+    0,
+    0,
+    size,
+    size,
+  );
 
   let pixels: Uint8ClampedArray;
   try {
@@ -149,22 +167,29 @@ function estimateDominantHex(image: DecodedImage): string | null {
     return null;
   }
 
-  let red = 0;
-  let green = 0;
-  let blue = 0;
-  let count = 0;
+  // Bucket colors at 3 bits per channel and keep running sums per bucket.
+  const buckets = new Map<number, { count: number; red: number; green: number; blue: number }>();
+  let opaque = 0;
   for (let index = 0; index < pixels.length; index += 4) {
-    const alpha = pixels[index + 3];
+    if (pixels[index + 3] < 128) continue;
     const [r, g, b] = [pixels[index], pixels[index + 1], pixels[index + 2]];
-    if (alpha < 128 || (r > 235 && g > 235 && b > 235)) continue;
-    red += r;
-    green += g;
-    blue += b;
-    count += 1;
+    const key = ((r >> 5) << 6) | ((g >> 5) << 3) | (b >> 5);
+    const bucket = buckets.get(key) ?? { count: 0, red: 0, green: 0, blue: 0 };
+    bucket.count += 1;
+    bucket.red += r;
+    bucket.green += g;
+    bucket.blue += b;
+    buckets.set(key, bucket);
+    opaque += 1;
   }
 
-  if (count < size) return null;
-  return toHex(red / count, green / count, blue / count);
+  // Mostly transparent (for example a cut-out PNG with an empty center).
+  if (opaque < (size * size) / 4) return null;
+  let best: { count: number; red: number; green: number; blue: number } | null = null;
+  for (const bucket of buckets.values()) {
+    if (!best || bucket.count > best.count) best = bucket;
+  }
+  return best ? toHex(best.red / best.count, best.green / best.count, best.blue / best.count) : null;
 }
 
 export async function compressGarmentImage(

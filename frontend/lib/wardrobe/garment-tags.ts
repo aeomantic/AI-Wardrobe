@@ -5,7 +5,9 @@ import type {
   ClosetItem,
   ClosetSeason,
   GarmentCategory,
+  GarmentPhotoType,
   GarmentTags,
+  GarmentVisualAnalysis,
   WardrobeItemMetadata,
 } from "@/types/closet";
 
@@ -67,28 +69,75 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
 }
 
+type Lch = [lightness: number, chroma: number, hue: number];
+
+/** sRGB hex to CIE LCh (D65), so distances follow perceived hue, not raw RGB. */
+function hexToLch(hex: string): Lch {
+  const [r, g, b] = hexToRgb(hex).map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const fx = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047);
+  const fy = f(0.2126 * r + 0.7152 * g + 0.0722 * b);
+  const fz = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883);
+  const a = 500 * (fx - fy);
+  const bStar = 200 * (fy - fz);
+  return [116 * fy - 16, Math.hypot(a, bStar), Math.atan2(bStar, a)];
+}
+
+/**
+ * Lightness is down-weighted because phone photos vary in exposure; hue is
+ * up-weighted so a muted sage green lands on a green, not on khaki or grey.
+ */
+function lchDistance([l1, c1, h1]: Lch, [l2, c2, h2]: Lch): number {
+  const hueDelta = 2 * Math.sqrt(c1 * c2) * Math.sin((h1 - h2) / 2);
+  return (0.5 * (l1 - l2)) ** 2 + (c1 - c2) ** 2 + (2 * hueDelta) ** 2;
+}
+
+const PALETTE_LCH = GARMENT_COLOR_PALETTE
+  .filter((color) => color.name !== "Multi")
+  .map((color) => ({ color, lch: hexToLch(color.hex) }));
+
 /** Snaps an arbitrary hex color to the closest named palette color. */
 export function nearestPaletteColor(hex: string): ClosetColor {
   if (!HEX_PATTERN.test(hex)) return GARMENT_COLOR_PALETTE[0];
-  const [red, green, blue] = hexToRgb(hex);
-  let best = GARMENT_COLOR_PALETTE[0];
+  const target = hexToLch(hex);
+  let best = PALETTE_LCH[0];
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const color of GARMENT_COLOR_PALETTE) {
-    if (color.name === "Multi") continue;
-    const [r, g, b] = hexToRgb(color.hex);
-    // Weighted RGB distance roughly tracks perceived difference.
-    const distance = 2 * (r - red) ** 2 + 4 * (g - green) ** 2 + 3 * (b - blue) ** 2;
+  for (const entry of PALETTE_LCH) {
+    const distance = lchDistance(target, entry.lch);
     if (distance < bestDistance) {
-      best = color;
+      best = entry;
       bestDistance = distance;
     }
   }
-  return best;
+  return best.color;
 }
 
 export function paletteColorByName(name: string): ClosetColor | null {
   const normalized = name.trim().toLowerCase();
   return GARMENT_COLOR_PALETTE.find((color) => color.name.toLowerCase() === normalized) ?? null;
+}
+
+const PALETTE_BY_NAME_LENGTH = [...GARMENT_COLOR_PALETTE].sort((a, b) => b.name.length - a.name.length);
+
+const COLOR_SYNONYMS: [RegExp, string][] = [
+  [/\bgray\b/, "Grey"],
+  [/\b(ivory|ecru|off[\s-]?white|bone)\b/, "Cream"],
+  [/\b(maroon|wine|oxblood)\b/, "Burgundy"],
+  [/\b(sage|mint|forest|emerald|kelly)\b/, "Green"],
+  [/\b(army|moss)\b/, "Olive"],
+];
+
+/** Finds a palette color named in free text, e.g. "light blue denim" or "washed charcoal". */
+export function paletteColorFromText(text: string): ClosetColor | null {
+  const words = text.toLowerCase();
+  // Qualified names first, so "army green" is Olive and "off-white" is Cream.
+  const synonym = COLOR_SYNONYMS.find(([pattern]) => pattern.test(words))?.[1];
+  if (synonym) return paletteColorByName(synonym);
+  // Longest names first so "light blue" beats "blue".
+  return PALETTE_BY_NAME_LENGTH.find((color) => new RegExp(`\\b${color.name.toLowerCase()}\\b`).test(words)) ?? null;
 }
 
 export function isNeutralColor(color: ClosetColor): boolean {
@@ -152,6 +201,22 @@ export function sanitizeStyleTags(value: unknown, limit = 8): string[] {
     .map((tag) => cleanText(tag, 32).toLowerCase())
     .filter((tag) => tag.length > 0);
   return [...new Set(tags)].slice(0, limit);
+}
+
+export const GARMENT_PHOTO_TYPES: readonly GarmentPhotoType[] = ["hanger", "flat-lay", "worn", "other"];
+
+/** Validates the vision model's reasoning notes. Returns null if there are none. */
+export function sanitizeVisualAnalysis(value: unknown): GarmentVisualAnalysis | null {
+  if (!isRecord(value)) return null;
+  const notes = {
+    shoulderConstruction: cleanText(value.shoulderConstruction, 240),
+    sleeveProportion: cleanText(value.sleeveProportion, 240),
+    bodySilhouette: cleanText(value.bodySilhouette, 240),
+    trueGarmentColor: cleanText(value.trueGarmentColor, 60),
+  };
+  if (!Object.values(notes).some(Boolean)) return null;
+  const photoType = typeof value.photoType === "string" ? value.photoType.trim().replace(/\s+/g, "-") : null;
+  return { photoType: pick(photoType, GARMENT_PHOTO_TYPES) ?? "other", ...notes };
 }
 
 /** Validates model output (or any untrusted object) into GarmentTags. */

@@ -105,13 +105,37 @@ export interface GeneratedClosetOutfit {
 /** Which engine produced an AI result. "fallback" is the deterministic local engine. */
 export type AiResultSource = "groq" | "openai" | "gemini" | "fallback";
 
+export type AiProviderName = Exclude<AiResultSource, "fallback">;
+
 export type AiFallbackReason = "no-api-key" | "provider-error" | "invalid-ai-response";
+
+/** Whether a live vision model looked at the photo, or the local heuristics guessed. */
+export type TagSource = "ai-vision" | "local-fallback";
+
+/** Why tagging fell back. Safe to show: it never carries provider error text. */
+export type TagFallbackReason = "missing_api_key" | "api_error" | "parse_error";
+
+export type GarmentPhotoType = "hanger" | "flat-lay" | "worn" | "other";
+
+/**
+ * The vision model's notes, written before it picks fit and color. Shown in
+ * the review card as "Why AI picked this" and never persisted on the item.
+ */
+export interface GarmentVisualAnalysis {
+  photoType: GarmentPhotoType;
+  shoulderConstruction: string;
+  sleeveProportion: string;
+  bodySilhouette: string;
+  trueGarmentColor: string;
+}
 
 export interface GarmentTagResponse {
   tags: GarmentTags;
-  source: AiResultSource;
+  tagSource: TagSource;
+  provider?: AiProviderName;
   model?: string;
-  fallbackReason?: AiFallbackReason;
+  fallbackReason?: TagFallbackReason;
+  visualAnalysis?: GarmentVisualAnalysis;
 }
 
 export interface RecommendedOutfit {

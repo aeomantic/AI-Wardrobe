@@ -1,5 +1,5 @@
 import {
-  LlmError,
+  describeLlmError,
   requestStructuredCompletion,
   resolveLlmProvider,
 } from "@/lib/ai/llm";
@@ -192,7 +192,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     return respond({ outfits: localOutfits, source: "fallback", fallbackReason: "invalid-ai-response" });
   } catch (error) {
-    console.warn(`[outfits/recommend] ${provider.name} failed:`, error instanceof LlmError ? error.message : error);
+    console.error(`[outfits/recommend] local fallback: ${provider.name}/${provider.model} ${describeLlmError(error)}`);
     return respond({
       outfits: recommendOutfitsLocally(items, brief),
       source: "fallback",

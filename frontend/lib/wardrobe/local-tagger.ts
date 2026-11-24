@@ -1,5 +1,4 @@
 import type {
-  ClosetColor,
   ClosetFit,
   ClosetFormality,
   ClosetSeason,
@@ -10,6 +9,7 @@ import {
   GARMENT_COLOR_PALETTE,
   isNeutralColor,
   nearestPaletteColor,
+  paletteColorFromText,
 } from "./garment-tags";
 
 /**
@@ -115,18 +115,6 @@ function titleCase(value: string): string {
   return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function colorFromWords(words: string): ClosetColor | null {
-  // Longest names first so "light blue" beats "blue".
-  const byLength = [...GARMENT_COLOR_PALETTE].sort((a, b) => b.name.length - a.name.length);
-  for (const color of byLength) {
-    if (new RegExp(`\\b${color.name.toLowerCase()}\\b`).test(words)) return color;
-  }
-  if (/\b(gray)\b/.test(words)) return GARMENT_COLOR_PALETTE.find((color) => color.name === "Grey") ?? null;
-  if (/\b(ivory|ecru|off white)\b/.test(words)) return GARMENT_COLOR_PALETTE.find((color) => color.name === "Cream") ?? null;
-  if (/\b(maroon|wine|oxblood)\b/.test(words)) return GARMENT_COLOR_PALETTE.find((color) => color.name === "Burgundy") ?? null;
-  return null;
-}
-
 function categoryFromShape(width: number | undefined, height: number | undefined): GarmentCategory {
   if (!width || !height) return "top";
   const ratio = height / width;
@@ -164,7 +152,7 @@ export function inferGarmentTagsLocally(hints: LocalTagHints): GarmentTags {
   const category = rule?.category ?? categoryFromShape(hints.width, hints.height);
   const noun = rule?.noun ?? DEFAULT_NOUNS[category];
 
-  const color = colorFromWords(words)
+  const color = paletteColorFromText(words)
     ?? (hints.dominantHex ? nearestPaletteColor(hints.dominantHex) : null)
     ?? GARMENT_COLOR_PALETTE[0];
   const material = MATERIAL_RULES.find(([pattern]) => pattern.test(words))?.[1] ?? DEFAULT_MATERIALS[category];
